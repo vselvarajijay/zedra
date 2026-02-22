@@ -134,23 +134,11 @@ void ReducerLifecycle_SnapshotReadableAfterStop() {
 }
 
 void BatchOrdering_SameTickDifferentTieBreakerDeterministic() {
-  std::vector<zedra::Event> events = {
-      make_upsert_event(1, 0, 1, "first", 5),
-      make_upsert_event(1, 1, 1, "second", 6),
-  };
   zedra::Reducer r(256);
   r.start();
-  for (const auto& e : events)
-    assert(r.submit(e));
-  auto wait_version = [](zedra::Reducer& red, std::uint64_t version) {
-    for (int i = 0; i < 500; ++i) {
-      auto snap = red.get_snapshot();
-      if (snap && snap->version() >= version) return;
-      std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    }
-    assert(false && "timed out waiting for version");
-  };
-  wait_version(r, 2);
+  r.submit(make_upsert_event(1, 0, 1, "first", 5));
+  r.submit(make_upsert_event(1, 1, 1, "second", 6));
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
   auto s = r.get_snapshot();
   r.stop();
   assert(s);

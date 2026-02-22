@@ -40,23 +40,23 @@ bool LockFreeQueue::push(Event event) {
     if (idx - head_.load(std::memory_order_acquire) >= cap) {
       return false;
     }
-    if (tail_.compare_exchange_weak(idx, idx + 1, std::memory_order_release)) {
+    if (tail_.compare_exchange_weak(idx, idx + 1, std::memory_order_seq_cst)) {
       break;
     }
   }
   std::size_t slot = idx & mask_;
   buffer_[slot] = std::move(event);
-  sequence_[slot].store(idx, std::memory_order_release);
+  sequence_[slot].store(idx, std::memory_order_seq_cst);
   return true;
 }
 
 bool LockFreeQueue::try_pop(Event& out) {
   std::uint64_t h = head_.load(std::memory_order_relaxed);
-  if (h >= tail_.load(std::memory_order_acquire)) {
+  if (h >= tail_.load(std::memory_order_seq_cst)) {
     return false;
   }
   std::size_t slot = h & mask_;
-  while (sequence_[slot].load(std::memory_order_acquire) != h) {
+  while (sequence_[slot].load(std::memory_order_seq_cst) != h) {
     // spin until producer wrote
   }
   out = std::move(buffer_[slot]);
@@ -67,7 +67,7 @@ bool LockFreeQueue::try_pop(Event& out) {
 
 std::size_t LockFreeQueue::drain(std::vector<Event>& out, std::size_t max_events) {
   std::size_t count = 0;
-  const std::size_t limit = (max_events > 0) ? max_events : (tail_.load(std::memory_order_acquire) - head_.load(std::memory_order_relaxed));
+  const std::size_t limit = (max_events > 0) ? max_events : (tail_.load(std::memory_order_seq_cst) - head_.load(std::memory_order_relaxed));
   out.reserve(out.size() + limit);
   Event e;
   while (count < limit && try_pop(e)) {

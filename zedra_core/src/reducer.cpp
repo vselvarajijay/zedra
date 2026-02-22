@@ -24,12 +24,12 @@ std::shared_ptr<const WorldState> Reducer::get_snapshot() const {
 }
 
 void Reducer::start() {
-  if (running_.exchange(true)) return;
+  if (running_.exchange(true, std::memory_order_acq_rel)) return;
   thread_ = std::thread(&Reducer::run, this);
 }
 
 void Reducer::stop() {
-  if (!running_.exchange(false)) return;
+  if (!running_.exchange(false, std::memory_order_acq_rel)) return;
   if (thread_.joinable()) thread_.join();
 }
 
@@ -38,7 +38,7 @@ void Reducer::run() {
   std::vector<Event> batch;
   batch.reserve(1024);
 
-  while (running_.load(std::memory_order_relaxed)) {
+  while (running_.load(std::memory_order_acquire)) {
     batch.clear();
     queue_.drain(batch, 1024);
 
