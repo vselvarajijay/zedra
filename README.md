@@ -95,3 +95,34 @@ Only this thread mutates `state` and publishes `snapshot`; all other threads eit
 
 - **Replay**: Feed the same event log (same order, same payloads) into the reducer → same sequence of `WorldState` snapshots and same final state hash.
 - **Validation**: Persist events and state hashes; recompute state from events and compare hashes to detect divergence or corruption.
+
+---
+
+## Building with ROS 2
+
+The `zedra_ros` package provides a thin transport bridge: it subscribes to `ZedraEvent` messages, pushes them into the core reducer, and publishes `SnapshotMeta` (version + hash) at 1 kHz.
+
+**Workspace layout:** Clone the repo into your colcon source space so that both `zedra_core` and `zedra_ros` are discovered:
+
+```bash
+cd /path/to/your/workspace/src
+git clone <repo_url> zedra
+cd /path/to/your/workspace
+colcon build --packages-up-to zedra_ros
+source install/setup.bash
+```
+
+**Run the bridge node:**
+
+```bash
+ros2 run zedra_ros zedra_ros_node
+```
+
+- **Ingest:** Publish `zedra_ros/msg/ZedraEvent` to `/zedra/inbound_events` (tick, tie_breaker, type, payload).
+- **Egress:** The node publishes `zedra_ros/msg/SnapshotMeta` (version, hash) on `/zedra/snapshot_meta` at 1 kHz.
+
+**Tests:** From the workspace root, run the replay determinism test (publishes 10k events, records a bag, replays twice, asserts identical final hash):
+
+```bash
+colcon test --packages-select zedra_ros
+```
