@@ -35,9 +35,10 @@ jobs:
   test-ros:
     name: Test zedra_ros (ROS 2)
     runs-on: ubuntu-latest
+    # Pin to amd64 so replay determinism test runs natively (no skip); OSRF image is amd64-only.
     container:
       image: osrf/ros:kilted-desktop
-      options: --privileged
+      options: --privileged --platform linux/amd64
     steps:
       - uses: actions/checkout@v4
 
@@ -94,6 +95,7 @@ jobs:
             echo "tag_list=ghcr.io/${{ github.repository }}:latest,ghcr.io/${{ github.repository }}:sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
           fi
 
+      # Build for amd64 (CI/servers) and arm64 (e.g. Apple Silicon); pull gets correct arch.
       - name: Build and push multi-platform image
         uses: docker/build-push-action@v6
         with:
