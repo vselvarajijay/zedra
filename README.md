@@ -29,6 +29,24 @@ See [ARCHITECTURE.md §13](ARCHITECTURE.md#13-development-and-testing) for more,
 
 ---
 
+## Command-line tool (zedra_cli)
+
+Build from the repo root (same CMake as above); the `zedra_cli` executable is built with the standalone target.
+
+```bash
+./build_standalone/zedra_cli/zedra_cli demo
+./build_standalone/zedra_cli/zedra_cli replay path/to/events.bin
+./build_standalone/zedra_cli/zedra_cli replay --expect-hash 0x<hex> path/to/events.bin
+```
+
+- **`zedra demo`** — Runs the built-in scenario and prints version and hash; run twice to confirm the same hash (determinism).
+- **`zedra replay <input>`** — Replays a binary-format event log (file or `-` for stdin) and prints final version and hash.
+- **`zedra replay --expect-hash 0x<hex> <input>`** — Exits 0 only if the final state hash matches; use in scripts to assert determinism.
+
+Use **`zedra --help`** and **`zedra <subcommand> --help`** for usage. See [ARCHITECTURE.md §3.3](ARCHITECTURE.md#33-zedra_cli) and [docs/PRD-zedra-cli.md](docs/PRD-zedra-cli.md) for the event log format and options.
+
+---
+
 ## Docker
 
 Pre-built images are on the [GitHub Container Registry](https://github.com/vselvarajijay/zedra/pkgs/container/zedra).

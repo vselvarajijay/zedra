@@ -41,3 +41,22 @@ if [[ "${1:-}" == "full" ]]; then
 else
   ./zedra_core/tests/zedra_core_tests chaotic
 fi
+
+# CLI smoke tests: demo (determinism) and replay (fixture + expect-hash)
+CLI="${BUILD_DIR}/zedra_cli/zedra_cli"
+WRITE_FIXTURE="${BUILD_DIR}/zedra_cli/write_fixture"
+FIXTURES_DIR="${ROOT}/zedra_cli/fixtures"
+if [[ -x "$CLI" && -x "$WRITE_FIXTURE" ]]; then
+  H1=$( "$CLI" demo 2>/dev/null | sed -n 's/^version=.* hash=0x\([0-9a-fA-F]*\).*/\1/p' )
+  H2=$( "$CLI" demo 2>/dev/null | sed -n 's/^version=.* hash=0x\([0-9a-fA-F]*\).*/\1/p' )
+  if [[ "$H1" != "$H2" || -z "$H1" ]]; then
+    echo "zedra_cli: demo determinism check failed (hash1=$H1 hash2=$H2)" >&2
+    exit 1
+  fi
+  mkdir -p "$FIXTURES_DIR"
+  "$WRITE_FIXTURE" > "${FIXTURES_DIR}/sample.bin"
+  "$CLI" replay "${FIXTURES_DIR}/sample.bin" >/dev/null 2>&1 || { echo "zedra_cli: replay failed" >&2; exit 1; }
+  "$CLI" replay --expect-hash "0x${H1}" "${FIXTURES_DIR}/sample.bin" >/dev/null 2>&1 || { echo "zedra_cli: replay --expect-hash failed" >&2; exit 1; }
+  "$CLI" replay --expect-hash 0x0 "${FIXTURES_DIR}/sample.bin" 2>/dev/null && { echo "zedra_cli: expect-hash mismatch should exit non-zero" >&2; exit 1; }
+  echo "zedra_cli smoke tests OK"
+fi

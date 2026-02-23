@@ -124,6 +124,15 @@ ROS 2 bridge node. Subscribes to `ZedraEvent` on `/zedra/inbound_events`, feeds 
 
 Standalone executable linking `zedra_core`. Used for local testing, replay, and demos. Built by the root CMake; not part of the ROS workspace.
 
+**Subcommands:**
+
+- **`zedra demo`** — Runs a built-in scenario; prints snapshot version and hash (and a short state summary). Same invocation always yields the same hash.
+- **`zedra replay [options] <input>`** — Reads a binary-format event log from `<input>` (file path or `-` for stdin), feeds events to the reducer, then prints final version, hash, and stats. Optional **`--expect-hash H`** compares the final state hash to `H` (hex) and exits non-zero on mismatch for determinism checks.
+
+**Global options** (before subcommand): `--queue-capacity N` (default 65536), `--window-ticks N` (default 0), `-h` / `--help`.
+
+**Event log format** for replay: little-endian binary; per-event record is `tick` (uint64), `tie_breaker` (uint64), `type` (uint32), `payload_len` (uint32), `payload` (payload_len bytes). See [docs/PRD-zedra-cli.md](docs/PRD-zedra-cli.md) §4 for details.
+
 ### 3.4 examples
 
 Minimal executable linking `zedra_core` to demonstrate API usage. Built by the root CMake.
