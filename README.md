@@ -127,6 +127,23 @@ This configures and builds in `build_standalone`, then runs `ctest` (or the test
 
 ---
 
+## Docker
+
+Pre-built images are published to [GitHub Container Registry](https://github.com/vselvarajijay/zedra/pkgs/container/zedra) after tests pass on `main` and on each release.
+
+**Pull and run the Zedra ROS bridge:**
+
+```bash
+docker pull ghcr.io/vselvarajijay/zedra:latest
+docker run --rm ghcr.io/vselvarajijay/zedra:latest
+```
+
+For a specific version (when using [releases](https://github.com/vselvarajijay/zedra/releases)), use the version tag, e.g. `ghcr.io/vselvarajijay/zedra:v1.0.0`.
+
+To run the full stack with ClickHouse (optional), use [docker-compose](docker-compose.yml): `docker compose --profile clickhouse up`.
+
+---
+
 ## ROS 2 integration
 
 **Build:**
