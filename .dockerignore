@@ -1,0 +1,27 @@
+# Git and IDE
+.git
+.gitignore
+.idea
+.cursor
+.vscode
+
+# Build and test artifacts
+build/
+*_build/
+build*/
+Testing/
+*.log
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Other packages (image only needs zedra_core + zedra_ros)
+zedra_cli
+examples
+
+# Docker
+Dockerfile
+.dockerignore

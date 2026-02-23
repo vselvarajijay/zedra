@@ -25,6 +25,8 @@ ZedraBridgeNode::ZedraBridgeNode(const rclcpp::NodeOptions& options)
     reducer_ = std::make_unique<zedra::Reducer>(queue_capacity);
     reducer_->start();
 
+    RCLCPP_INFO(get_logger(), "zedra_bridge running: sub /zedra/inbound_events, pub /zedra/snapshot_meta (1 kHz)");
+
     sub_ = this->create_subscription<zedra_ros::msg::ZedraEvent>(
         "/zedra/inbound_events", 10, [this](zedra_ros::msg::ZedraEvent::ConstSharedPtr msg) {
           on_inbound_event(msg);

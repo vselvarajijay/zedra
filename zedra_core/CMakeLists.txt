@@ -1,3 +1,11 @@
+cmake_minimum_required(VERSION 3.16)
+project(zedra_core LANGUAGES CXX)
+
+# Required for ament_cmake's use of IN_LIST in if()
+if(POLICY CMP0057)
+  cmake_policy(SET CMP0057 NEW)
+endif()
+
 find_package(ament_cmake QUIET)
 
 add_library(zedra_core
