@@ -35,9 +35,12 @@ install(TARGETS
 if(BUILD_TESTING)
   find_package(ament_cmake_test REQUIRED)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  # SKIP_RETURN_CODE 77: when test exits 77 (e.g. Docker amd64 on ARM, skip replay), CTest marks skipped.
   ament_add_test(test_replay_determinism
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_replay_determinism.py
     TIMEOUT 120
+    SKIP_RETURN_CODE 77
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO
   )
 endif()
 

@@ -36,6 +36,15 @@ class Reducer {
   /// Latest snapshot. Brief lock on read.
   std::shared_ptr<const WorldState> get_snapshot() const;
 
+  /// Diagnostic stats for determinism tests: applied count, tick range, window config.
+  struct Stats {
+    std::uint64_t events_applied{0};
+    std::uint64_t first_tick{0};   // 0 if none yet
+    std::uint64_t last_tick{0};
+    std::uint64_t window_ticks{0};
+  };
+  Stats get_stats() const;
+
   void start();
   void stop();
 
@@ -45,7 +54,9 @@ class Reducer {
   LockFreeQueue<Event> queue_;
   LockFreeQueue<EgressItem>* egress_queue_;
   std::uint64_t window_ticks_{0};
-  std::uint64_t max_tick_seen_{0};
+  std::atomic<std::uint64_t> events_applied_total_{0};
+  std::atomic<std::uint64_t> min_tick_seen_{0};   // 0 = not set
+  std::atomic<std::uint64_t> max_tick_seen_{0};
   mutable std::mutex snapshot_mutex_;
   std::shared_ptr<const WorldState> snapshot_;
   std::atomic<bool> running_{false};

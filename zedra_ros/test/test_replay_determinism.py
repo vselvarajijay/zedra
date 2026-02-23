@@ -4,6 +4,7 @@ Replay determinism test: publish 10k ZedraEvents, record bag, replay twice,
 assert both runs produce the same SnapshotMeta.hash.
 """
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -18,12 +19,21 @@ except ImportError:
     print("Skipping replay test: rclpy or zedra_ros.msg not available (source install/setup.bash)", file=sys.stderr)
     sys.exit(0)
 
+# Skip when running amd64 image under Rosetta on ARM (middleware allocates huge payload on deserialize).
+# Exit 77 so ament_add_test SKIP_RETURN_CODE marks the test as skipped, not failed.
+if os.environ.get("SKIP_REPLAY_DETERMINISM") == "1":
+    print("Skipping replay test: SKIP_REPLAY_DETERMINISM=1 (e.g. Docker amd64 on ARM host)", file=sys.stderr)
+    sys.exit(77)
+
 
 NUM_EVENTS = 10000
 BAG_TOPIC = "/zedra/inbound_events"
 META_TOPIC = "/zedra/snapshot_meta"
-SPIN_TIMEOUT_SEC = 25
-BRIDGE_STARTUP_SEC = 2
+# Tuned for stability in Docker/CI (slower startup and replay)
+SPIN_TIMEOUT_SEC = 40
+BRIDGE_STARTUP_SEC = 5
+PLAY_START_DELAY_SEC = 8  # wait after starting play so DDS discovery completes before we sample
+PLAY_JOIN_TIMEOUT_SEC = 15
 
 
 def publish_events():
@@ -48,16 +58,39 @@ def publish_events():
     rclpy.shutdown()
 
 
-def collect_last_hash(timeout_sec):
-    """Subscribe to SnapshotMeta and return the last hash received after spinning for timeout_sec."""
+def _meta_header(meta):
+    """Format determinism header line from a SnapshotMeta message."""
+    window = "off" if meta.window_ticks == 0 else str(meta.window_ticks)
+    return (
+        "enq=%s applied=%s dropped=%s tick=[%s..%s] keys=%s window=%s hash=%s"
+        % (
+            meta.events_enqueued,
+            meta.events_applied,
+            meta.events_dropped,
+            meta.first_tick,
+            meta.last_tick,
+            meta.key_count,
+            window,
+            meta.hash,
+        )
+    )
+
+
+def collect_until_fully_reduced(timeout_sec, required_applied, required_dropped=0):
+    """
+    Subscribe to SnapshotMeta; wait until timeout. Return (final_meta, last_meta).
+    final_meta: last meta where events_applied >= required_applied and events_dropped <= required_dropped, or None.
+    last_meta: last meta received (for error reporting).
+    """
     rclpy.init()
     node = Node("replay_test_subscriber")
-    last_hash = [None]
-    last_version = [None]
+    fully_reduced = [None]  # last meta that met the requirement
+    last_any = [None]
 
     def cb(msg):
-        last_hash[0] = msg.hash
-        last_version[0] = msg.version
+        last_any[0] = msg
+        if msg.events_applied >= required_applied and msg.events_dropped <= required_dropped:
+            fully_reduced[0] = msg
 
     node.create_subscription(SnapshotMeta, META_TOPIC, cb, 10)
     deadline = time.monotonic() + timeout_sec
@@ -65,17 +98,28 @@ def collect_last_hash(timeout_sec):
         rclpy.spin_once(node, timeout_sec=0.2)
     node.destroy_node()
     rclpy.shutdown()
-    return last_hash[0], last_version[0]
+    return fully_reduced[0], last_any[0]
 
 
 def run_bag_play(bag_path):
-    """Run ros2 bag play in subprocess (blocking until play finishes)."""
-    subprocess.run(
-        ["ros2", "bag", "play", bag_path, "--no-loop"],
-        check=True,
-        capture_output=True,
-        timeout=60,
-    )
+    """Run ros2 bag play in subprocess (blocking until play finishes). No --loop = play once (default in ROS 2 Kilted)."""
+    try:
+        result = subprocess.run(
+            ["ros2", "bag", "play", bag_path],
+            capture_output=True,
+            timeout=60,
+            text=True,
+        )
+        if result.returncode != 0:
+            print("ros2 bag play failed (exit %d):" % result.returncode, file=sys.stderr)
+            if result.stderr:
+                print(result.stderr, file=sys.stderr)
+            if result.stdout:
+                print(result.stdout, file=sys.stderr)
+            sys.exit(1)
+    except subprocess.TimeoutExpired as e:
+        print("ros2 bag play timed out:", e, file=sys.stderr)
+        sys.exit(1)
 
 
 def main():
@@ -86,14 +130,20 @@ def main():
     proc_record = subprocess.Popen(
         ["ros2", "bag", "record", BAG_TOPIC, "-o", bag_path, "-s", "sqlite3"],
         cwd=bag_dir,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
     )
     time.sleep(1)
     publish_events()
     time.sleep(1)
     proc_record.terminate()
-    proc_record.wait(timeout=5)
+    try:
+        proc_record.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc_record.kill()
+        proc_record.wait()
+    record_stderr = proc_record.stderr.read() if proc_record.stderr else ""
 
     # Find the actual bag folder (ros2 bag record creates bag_path_0 etc. sometimes)
     if not os.path.isdir(bag_path) and os.path.exists(bag_dir):
@@ -103,38 +153,67 @@ def main():
                 break
     if not os.path.isdir(bag_path):
         print("ERROR: bag not created at", bag_path, file=sys.stderr)
+        if record_stderr:
+            print("ros2 bag record stderr:", record_stderr, file=sys.stderr)
         sys.exit(1)
 
-    last_hashes = []
+    results = []  # list of (final_meta, last_meta) per run
 
     for run in range(2):
         proc_bridge = subprocess.Popen(
             ["ros2", "run", "zedra_ros", "zedra_ros_node"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             env=os.environ,
+            text=True,
         )
+        time.sleep(0.5)  # allow quick crash to set returncode
         if proc_bridge.returncode is not None:
-            print("ERROR: could not start zedra_ros_node", file=sys.stderr)
+            print("ERROR: could not start zedra_ros_node (exit %s)" % proc_bridge.returncode, file=sys.stderr)
+            if proc_bridge.stderr:
+                print(proc_bridge.stderr.read(), file=sys.stderr)
             sys.exit(1)
 
         time.sleep(BRIDGE_STARTUP_SEC)
         play_thread = threading.Thread(target=run_bag_play, args=(bag_path,))
         play_thread.start()
-        time.sleep(1)
-        h, v = collect_last_hash(SPIN_TIMEOUT_SEC)
-        last_hashes.append((h, v))
-        play_thread.join(timeout=5)
+        time.sleep(PLAY_START_DELAY_SEC)
+        final_meta, last_meta = collect_until_fully_reduced(
+            SPIN_TIMEOUT_SEC, required_applied=NUM_EVENTS, required_dropped=0
+        )
+        results.append((final_meta, last_meta))
+        play_thread.join(timeout=PLAY_JOIN_TIMEOUT_SEC)
         proc_bridge.terminate()
-        proc_bridge.wait(timeout=5)
+        try:
+            proc_bridge.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc_bridge.kill()
+            proc_bridge.wait()
+        if proc_bridge.returncode is not None and proc_bridge.returncode != 0 and proc_bridge.returncode != -signal.SIGTERM:
+            bridge_stderr = proc_bridge.stderr.read() if proc_bridge.stderr else ""
+            if bridge_stderr:
+                print("zedra_ros_node stderr (run %d):" % (run + 1), bridge_stderr, file=sys.stderr)
 
-    if last_hashes[0][0] is None or last_hashes[1][0] is None:
-        print("ERROR: did not receive SnapshotMeta in one or both runs", file=sys.stderr)
+    for run, (final_meta, last_meta) in enumerate(results):
+        if last_meta is None:
+            print("ERROR: run %d did not receive any SnapshotMeta" % (run + 1), file=sys.stderr)
+            sys.exit(1)
+        print("run %d: %s" % (run + 1, _meta_header(last_meta)))
+        if final_meta is None:
+            print(
+                "FAIL: run %d did not process full log (need applied>=%d dropped=0)" % (run + 1, NUM_EVENTS),
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    if results[0][0].hash != results[1][0].hash:
+        print(
+            "FAIL: hash mismatch run1=%s run2=%s (determinism broken; on ARM Mac with amd64 image this can be due to Rosetta emulation)"
+            % (results[0][0].hash, results[1][0].hash),
+            file=sys.stderr,
+        )
         sys.exit(1)
-    if last_hashes[0][0] != last_hashes[1][0]:
-        print("FAIL: hash mismatch run1=%s run2=%s" % (last_hashes[0][0], last_hashes[1][0]), file=sys.stderr)
-        sys.exit(1)
-    print("PASS: both replays produced identical hash:", last_hashes[0][0])
+    print("PASS: both replays produced identical hash: %s" % results[0][0].hash)
     try:
         import shutil
         shutil.rmtree(bag_dir, ignore_errors=True)

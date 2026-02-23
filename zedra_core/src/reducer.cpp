@@ -72,11 +72,25 @@ void Reducer::run() {
       state = WorldState::apply(state, e);
     }
 
-    std::uint64_t batch_max = 0;
-    for (const Event& e : pending) batch_max = std::max(batch_max, e.tick);
-    max_tick_seen_ = std::max(max_tick_seen_, batch_max);
+    std::uint64_t batch_min = pending.front().tick;
+    std::uint64_t batch_max = batch_min;
+    for (const Event& e : pending) {
+      batch_min = std::min(batch_min, e.tick);
+      batch_max = std::max(batch_max, e.tick);
+    }
+    events_applied_total_.fetch_add(pending.size(), std::memory_order_relaxed);
+    std::uint64_t prev_max = max_tick_seen_.load(std::memory_order_relaxed);
+    while (prev_max < batch_max &&
+           !max_tick_seen_.compare_exchange_weak(prev_max, batch_max, std::memory_order_relaxed)) {
+    }
+    std::uint64_t prev_min = min_tick_seen_.load(std::memory_order_relaxed);
+    if (prev_min == 0)
+      min_tick_seen_.store(batch_min, std::memory_order_relaxed);
+    else
+      min_tick_seen_.store(std::min(prev_min, batch_min), std::memory_order_relaxed);
+
     if (window_ticks_ > 0)
-      state = WorldState::trim(state, max_tick_seen_, window_ticks_);
+      state = WorldState::trim(state, max_tick_seen_.load(std::memory_order_relaxed), window_ticks_);
 
     pending.clear();
 
@@ -85,6 +99,15 @@ void Reducer::run() {
       snapshot_ = std::make_shared<WorldState>(state);
     }
   }
+}
+
+Reducer::Stats Reducer::get_stats() const {
+  Stats s;
+  s.events_applied = events_applied_total_.load(std::memory_order_acquire);
+  s.first_tick = min_tick_seen_.load(std::memory_order_acquire);
+  s.last_tick = max_tick_seen_.load(std::memory_order_acquire);
+  s.window_ticks = window_ticks_;
+  return s;
 }
 
 }  // namespace zedra

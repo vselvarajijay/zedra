@@ -10,6 +10,10 @@ namespace zedra_ros {
 
 namespace {
 
+/// Reject payloads larger than this to avoid OOM from corrupted/mis-deserialized
+/// message size (e.g. when running amd64 image under Rosetta on ARM).
+constexpr std::size_t kMaxPayloadSize = 1024 * 1024;  // 1 MiB
+
 std::string to_hex(std::uint64_t value) {
   std::ostringstream os;
   os << std::hex << value;
@@ -41,12 +45,23 @@ ZedraBridgeNode::~ZedraBridgeNode() {
 }
 
 void ZedraBridgeNode::on_inbound_event(zedra_ros::msg::ZedraEvent::ConstSharedPtr msg) {
-    std::vector<std::byte> payload(msg->payload.size());
-    for (std::size_t i = 0; i < msg->payload.size(); ++i) {
+    const std::size_t raw_size = msg->payload.size();
+    if (raw_size > kMaxPayloadSize) {
+      RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 5000,
+          "dropping event with oversized payload (tick=%" PRIu64 ", size=%zu, max=%zu)",
+          msg->tick, raw_size, kMaxPayloadSize);
+      drop_count_++;
+      return;
+    }
+    std::vector<std::byte> payload(raw_size);
+    for (std::size_t i = 0; i < raw_size; ++i) {
       payload[i] = static_cast<std::byte>(msg->payload[i]);
     }
     zedra::Event e(msg->tick, msg->tie_breaker, msg->type, std::move(payload));
-    if (!reducer_->submit(std::move(e))) {
+    if (reducer_->submit(std::move(e))) {
+      enqueued_ok_++;
+    } else {
       if (drop_count_++ == 0) {
         RCLCPP_WARN(get_logger(), "zedra queue full, dropping event (tick=%" PRIu64 ")", msg->tick);
       }
@@ -56,10 +71,18 @@ void ZedraBridgeNode::on_inbound_event(zedra_ros::msg::ZedraEvent::ConstSharedPt
 void ZedraBridgeNode::publish_snapshot_meta() {
     auto snap = reducer_->get_snapshot();
     if (!snap) return;
+    auto stats = reducer_->get_stats();
     zedra_ros::msg::SnapshotMeta meta;
     meta.version = snap->version();
     meta.hash = to_hex(snap->hash());
-  meta_pub_->publish(meta);
+    meta.events_enqueued = enqueued_ok_;
+    meta.events_applied = stats.events_applied;
+    meta.events_dropped = drop_count_;
+    meta.first_tick = stats.first_tick;
+    meta.last_tick = stats.last_tick;
+    meta.key_count = static_cast<uint32_t>(snap->data().size());
+    meta.window_ticks = stats.window_ticks;
+    meta_pub_->publish(meta);
 }
 
 }  // namespace zedra_ros

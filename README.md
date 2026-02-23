@@ -123,7 +123,13 @@ From the repo root, build and run the core test suite (unit tests, replay, behav
 ./scripts/run_tests.sh
 ```
 
-This configures and builds in `build_standalone`, then runs `ctest` (or the test binary directly if ctest is not available).
+This configures and builds in `build_standalone`, then runs the test binary (chaotic by default; use `./scripts/run_tests.sh full` for the full suite). To run **zedra_ros** tests (replay determinism), source your ROS 2 install and run:
+
+```bash
+./scripts/run_tests.sh ros
+```
+
+CI runs both the standalone CMake tests and the zedra_ros colcon tests.
 
 ---
 
@@ -141,6 +147,35 @@ docker run --rm ghcr.io/vselvarajijay/zedra:latest
 For a specific version (when using [releases](https://github.com/vselvarajijay/zedra/releases)), use the version tag, e.g. `ghcr.io/vselvarajijay/zedra:v1.0.0`.
 
 To run the full stack with ClickHouse (optional), use [docker-compose](docker-compose.yml): `docker compose --profile clickhouse up`.
+
+**Running tests inside the image:** From the repo root, build and run zedra_ros tests in one step:
+
+```bash
+./scripts/docker_test.sh
+```
+
+Or manually: `docker build --platform linux/amd64 -t zedra .` then run the `colcon test` / `colcon test-result` command inside the container (see the script for the exact bash command).
+
+**ARM Macs and multi-arch:** The published image is multi-arch (`linux/amd64`, `linux/arm64`). Prefer native arm64 so you avoid emulation:
+
+```bash
+docker run --rm --platform=linux/arm64 ghcr.io/vselvarajijay/zedra:latest
+```
+
+If you build locally with Buildx for both platforms:
+
+```bash
+docker buildx create --use
+docker buildx build --platform linux/amd64,linux/arm64 -t zedra:local --load .
+```
+
+If you must run the amd64 image on Apple Silicon (emulation), the replay test can fail with Rosetta memory errors or hash mismatch. You can try giving the container more resources (Docker Desktop → Settings → Resources) and optionally reduce allocator pressure:
+
+```bash
+docker run --rm -e MALLOC_ARENA_MAX=2 -e GLIBC_TUNABLES=glibc.malloc.trim_threshold=524288 zedra ...
+```
+
+CI runs on native linux/amd64; for production, treat native arm64 support as the supported path.
 
 ---
 

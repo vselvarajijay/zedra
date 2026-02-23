@@ -32,6 +32,35 @@ jobs:
         working-directory: ${{ github.workspace }}/build
         run: ctest -C ${{ env.BUILD_TYPE }} --output-on-failure
 
+  test-ros:
+    name: Test zedra_ros (ROS 2)
+    runs-on: ubuntu-latest
+    container:
+      image: osrf/ros:kilted-desktop
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rosbag2 sqlite3 storage
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ros-kilted-rosbag2-storage-default-plugins
+          rm -rf /var/lib/apt/lists/*
+
+      - name: Create colcon workspace
+        run: |
+          mkdir -p ros_ws/src
+          cp -r zedra_core zedra_ros ros_ws/src/
+
+      - name: Build and test zedra_ros
+        run: |
+          source /opt/ros/kilted/setup.bash
+          cd ros_ws
+          colcon build --packages-up-to zedra_ros
+          source install/setup.bash
+          colcon test --packages-select zedra_ros --event-handlers console_direct+
+          colcon test-result --verbose
+
   docker:
     name: Build and push Docker image (multi-arch)
     runs-on: ubuntu-latest

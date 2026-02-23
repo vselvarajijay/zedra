@@ -1,12 +1,15 @@
 # zedra_ros: ROS 2 Kilted image to build and run zedra_ros bridge node
+# On ARM Macs, build with: docker build --platform linux/amd64 -t zedra .
+# Or use ./scripts/docker_test.sh to build and run tests.
 FROM osrf/ros:kilted-desktop
 
-# Build deps (base image has most; ensure colcon and toolchain)
+# Build deps and rosbag2 sqlite3 storage for tests (ros2 bag record -s sqlite3)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     python3-colcon-common-extensions \
     python3-rosdep \
+    ros-kilted-rosbag2-storage-default-plugins \
     && rm -rf /var/lib/apt/lists/*
 
 # Workspace: colcon expects packages under src/

@@ -24,6 +24,7 @@ class ZedraBridgeNode : public rclcpp::Node {
   rclcpp::Publisher<zedra_ros::msg::SnapshotMeta>::SharedPtr meta_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
   std::uint64_t drop_count_{0};
+  std::uint64_t enqueued_ok_{0};
 };
 
 }  // namespace zedra_ros
