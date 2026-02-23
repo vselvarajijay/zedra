@@ -1,0 +1,49 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: zedra-clickhouse
+    hostname: clickhouse
+    ports:
+      - "8123:8123"   # HTTP
+      - "9000:9000"   # Native
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    environment:
+      CLICKHOUSE_DB: zedra
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "-O", "/dev/null", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - zedra-net
+    restart: unless-stopped
+
+  zedra:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zedra-ros
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      # For Zedra → ClickHouse integration (e.g. event/snapshot logging)
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+    networks:
+      - zedra-net
+    restart: unless-stopped
+
+volumes:
+  clickhouse_data:
+
+networks:
+  zedra-net:
+    driver: bridge
