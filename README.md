@@ -4,7 +4,7 @@
 
 Real-time robotics systems mutate shared state under concurrency without deterministic ordering. Behavior ends up depending on OS scheduling and wall-clock timing, causing race conditions, sim-to-real divergence, and unreproducible execution. Zedra enforces one rule to fix this: **concurrency at ingestion only; one thread mutates state.**
 
-Multiple producers (sensors, controllers, sim) push events into a lock-free queue. A single reducer thread drains the queue, sorts by logical time (tick, tie_breaker), and applies events to world state in order. Readers get immutable snapshots. Same event log, same state, always.
+Multiple producers (sensors, controllers, sim) push events into a lock-free queue. A single reducer thread drains the queue, sorts by logical time (tick, tie_breaker), and applies events to world state in order. Readers get immutable snapshots. Optionally, state can be trimmed to a sliding time window so only recently updated keys are kept. Same event log (and same window config), same state, always.
 
 ---
 
@@ -38,8 +38,9 @@ All concurrent work happens at **ingestion**: multiple producers (sensors, contr
 │              REDUCER  (single thread, single authority)      │
 │                                                              │
 │   for each e in sorted batch:                                │
-│       state    = WorldState::apply(state, e)                 │
-│       snapshot = make_shared(state)                          │
+│       state = WorldState::apply(state, e)                   │
+│   if window_ticks > 0:  state = WorldState::trim(state, …)  │
+│   snapshot = make_shared(state)                             │
 └──────────────────────────┬───────────────────────────────────┘
                            │
                            │  get_snapshot() → shared_ptr<const WorldState>
@@ -69,8 +70,8 @@ Events carry **logical time**: `(tick, tie_breaker)` and `type` + `payload`. Ord
 |-----------|------|
 | **Event** | Immutable record: `tick`, `tie_breaker`, `type`, `payload`. Comparable and hashable (FNV-1a) for deterministic replay. |
 | **LockFreeQueue** | Bounded multi-producer, **single-consumer** queue of `Event`. Producers call `push()`; only the reducer calls `drain()`. When full, `push()` returns false (back off or retry). |
-| **Reducer** | Single thread that drains the queue, sorts by logical time, applies `WorldState::apply(current, event)` in order, and publishes the latest `WorldState` as a `shared_ptr<const WorldState>`. |
-| **WorldState** | Immutable snapshot: version, deterministic hash, and a key-value map (sorted for deterministic iteration). `apply(current, event)` is pure: same inputs ⇒ same new state. |
+| **Reducer** | Single thread that drains the queue, sorts by logical time, applies `WorldState::apply(current, event)` in order, optionally trims state by a sliding window (see below), and publishes the latest `WorldState` as a `shared_ptr<const WorldState>`. Config: `queue_capacity`, optional `egress_queue`, optional `window_ticks`. |
+| **WorldState** | Immutable snapshot: version, deterministic hash, and a key–entry map (key → value + `last_tick`), sorted by key. `apply(current, event)` is pure and records the event’s tick per key. Optional `trim(state, max_tick, window_ticks)` drops keys outside the window. Same inputs ⇒ same state. |
 | **Readers** | Call `get_snapshot()` (brief mutex to read the shared pointer); then hold `shared_ptr<const WorldState>` and read without further locking. |
 
 ### Reducer loop (single thread)
@@ -81,15 +82,35 @@ Events carry **logical time**: `(tick, tie_breaker)` and `type` + `payload`. Ord
       sort(batch) by (tick, tie_breaker)
       for each event e in batch:
           state = WorldState::apply(state, e)
+      max_tick_seen = max(max_tick_seen, max(batch.tick))
+      if window_ticks > 0:
+          state = WorldState::trim(state, max_tick_seen, window_ticks)
       snapshot = make_shared(WorldState(state))
   }
 ```
 
 Only this thread mutates `state` and publishes `snapshot`; all other threads either submit events or read the latest snapshot.
 
+### Sliding window (optional)
+
+World state can be limited to a **time window** so the snapshot only contains keys updated within the last `window_ticks` of logical time. This keeps memory bounded and gives a “recent state” view without re-playing raw events.
+
+- **State model:** Each key stores `(value, last_tick)`. On apply, the event’s `tick` is recorded as that key’s `last_tick`.
+- **Trim:** After applying a batch, the reducer maintains a global **max_tick_seen** (high-water mark over all applied events). If `window_ticks > 0`, it runs `WorldState::trim(state, max_tick_seen, window_ticks)`, which removes keys with `last_tick < max_tick_seen - window_ticks`.
+- **Performance:** Trim is a single O(N) pass over the key set (no event replay). Same event stream and same `window_ticks` ⇒ same snapshot and hash (deterministic).
+- **Default:** `window_ticks == 0` (no trim); state grows without bound as before.
+
+### Configuration
+
+| Parameter | Where | Default | Description |
+|-----------|--------|---------|-------------|
+| **queue_capacity** | `Reducer` ctor, ROS `queue_capacity` | 65536 | Max events in the ingestion queue. When full, `submit()` returns false. |
+| **egress_queue** | `Reducer` ctor | `nullptr` | If set, each event (after sort) is pushed here with ingestion timestamp before apply; single consumer only (e.g. logging). |
+| **window_ticks** | `Reducer` ctor | 0 | If > 0, trim state to keys with `last_tick` in `[max_tick_seen - window_ticks, max_tick_seen]`. 0 = no trim (cumulative state). |
+
 ### Replay and validation
 
-- **Replay**: Feed the same event log (same order, same payloads) into the reducer → same sequence of `WorldState` snapshots and same final state hash.
+- **Replay**: Feed the same event log (same order, same payloads) into the reducer with the same configuration → same sequence of `WorldState` snapshots and same final state hash. With a sliding window, use the same `window_ticks` for deterministic comparison.
 - **Validation**: Persist events and state hashes; recompute state from events and compare hashes to detect divergence or corruption.
 
 ---
@@ -121,6 +142,7 @@ source install/setup.bash
 ```bash
 ros2 run zedra_ros zedra_ros_node
 # optional: --ros-args -p queue_capacity:=65536
+# (window_ticks is not yet exposed as a ROS parameter; use the core API for sliding-window state.)
 ```
 
 **Ingest:** Publish `ZedraEvent` to `/zedra/inbound_events`. **Egress:** `SnapshotMeta` (version + hash) on `/zedra/snapshot_meta` at 1 kHz.
