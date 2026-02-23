@@ -29,6 +29,8 @@ if os.environ.get("SKIP_REPLAY_DETERMINISM") == "1":
 NUM_EVENTS = 10000
 BAG_TOPIC = "/zedra/inbound_events"
 META_TOPIC = "/zedra/snapshot_meta"
+# Smaller queue reduces bridge startup allocation (~4x less) to avoid OOM/bad_alloc in CI.
+QUEUE_CAPACITY = 16384
 # Tuned for stability in Docker/CI (slower startup and replay)
 SPIN_TIMEOUT_SEC = 40
 BRIDGE_STARTUP_SEC = 5
@@ -161,7 +163,10 @@ def main():
 
     for run in range(2):
         proc_bridge = subprocess.Popen(
-            ["ros2", "run", "zedra_ros", "zedra_ros_node"],
+            [
+                "ros2", "run", "zedra_ros", "zedra_ros_node",
+                "--ros-args", "-p", "queue_capacity:=%d" % QUEUE_CAPACITY,
+            ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=os.environ,
