@@ -54,6 +54,7 @@ jobs:
           cp -r zedra_core zedra_ros ros_ws/src/
 
       - name: Build and test zedra_ros
+        shell: bash
         run: |
           source /opt/ros/kilted/setup.bash
           cd ros_ws
