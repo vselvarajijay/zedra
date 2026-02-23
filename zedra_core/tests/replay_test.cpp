@@ -75,9 +75,10 @@ void EventOrderDeterminesState() {
   assert(s->version() == 2);
   assert(s->data().size() == 1);
   assert(s->data()[0].first == 1);
-  std::string val(s->data()[0].second.size(), '\0');
-  for (size_t i = 0; i < s->data()[0].second.size(); ++i)
-    val[i] = static_cast<char>(static_cast<unsigned char>(s->data()[0].second[i]));
+  const auto& val_bytes = s->data()[0].second.value;
+  std::string val(val_bytes.size(), '\0');
+  for (size_t i = 0; i < val_bytes.size(); ++i)
+    val[i] = static_cast<char>(static_cast<unsigned char>(val_bytes[i]));
   assert(val == "second");
 }
 
@@ -127,9 +128,10 @@ void ReducerLifecycle_SnapshotReadableAfterStop() {
   assert(s);
   assert(s->version() == 1);
   assert(s->data().size() == 1);
-  std::string val(s->data()[0].second.size(), '\0');
-  for (size_t i = 0; i < s->data()[0].second.size(); ++i)
-    val[i] = static_cast<char>(static_cast<unsigned char>(s->data()[0].second[i]));
+  const auto& val_bytes = s->data()[0].second.value;
+  std::string val(val_bytes.size(), '\0');
+  for (size_t i = 0; i < val_bytes.size(); ++i)
+    val[i] = static_cast<char>(static_cast<unsigned char>(val_bytes[i]));
   assert(val == "final");
 }
 
@@ -144,9 +146,10 @@ void BatchOrdering_SameTickDifferentTieBreakerDeterministic() {
   assert(s);
   assert(s->version() == 2);
   assert(s->data().size() == 1);
-  std::string val(s->data()[0].second.size(), '\0');
-  for (size_t i = 0; i < s->data()[0].second.size(); ++i)
-    val[i] = static_cast<char>(static_cast<unsigned char>(s->data()[0].second[i]));
+  const auto& val_bytes = s->data()[0].second.value;
+  std::string val(val_bytes.size(), '\0');
+  for (size_t i = 0; i < val_bytes.size(); ++i)
+    val[i] = static_cast<char>(static_cast<unsigned char>(val_bytes[i]));
   assert(val == "second" && "reducer sorts by (tick, tie_breaker), so (1,1) wins over (1,0)");
 }
 

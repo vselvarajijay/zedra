@@ -60,8 +60,8 @@ void ExampleMainFlow_SnapshotVersionAndContent() {
 
   std::string v1, v2;
   for (const auto& [k, v] : snapshot->data()) {
-    if (k == 1) v1 = value_to_string(v);
-    if (k == 2) v2 = value_to_string(v);
+    if (k == 1) v1 = value_to_string(v.value);
+    if (k == 2) v2 = value_to_string(v.value);
   }
   assert(v1 == "zedra");
   assert(v2 == "world");

@@ -14,7 +14,11 @@ class WorldState {
  public:
   using Key = std::uint64_t;
   using Value = std::vector<std::byte>;
-  using Map = std::vector<std::pair<Key, Value>>;  // sorted by Key
+  struct Entry {
+    Value value;
+    std::uint64_t last_tick{0};
+  };
+  using Map = std::vector<std::pair<Key, Entry>>;  // sorted by Key
 
   WorldState() = default;
   WorldState(std::uint64_t version, Map data);
@@ -26,6 +30,9 @@ class WorldState {
 
   /// Apply one event to produce a new WorldState. Deterministic.
   static WorldState apply(const WorldState& current, const Event& event);
+
+  /// Trim keys with last_tick < max_tick - window_ticks. Returns s unchanged if window_ticks == 0.
+  static WorldState trim(const WorldState& s, std::uint64_t max_tick, std::uint64_t window_ticks);
 
  private:
   std::uint64_t version_{0};

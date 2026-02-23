@@ -9,6 +9,7 @@ extern void run_behavioral_guarantees_tests();
 extern void run_example_smoke_tests();
 extern void run_concurrent_tests();
 extern void run_chaotic_ingestion_tests();
+extern void run_sliding_window_tests();
 
 int main(int argc, char** argv) {
   if (argc >= 2 && std::string(argv[1]) == "chaotic") {
@@ -32,6 +33,8 @@ int main(int argc, char** argv) {
   run_example_smoke_tests();
   std::cerr << "concurrent tests\n";
   run_concurrent_tests();
+  std::cerr << "sliding window tests\n";
+  run_sliding_window_tests();
   std::cerr << "chaotic ingestion tests\n";
   run_chaotic_ingestion_tests();
   std::cerr << "all tests passed\n";

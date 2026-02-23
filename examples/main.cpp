@@ -32,9 +32,10 @@ int main() {
     std::cout << "version=" << snapshot->version()
               << " hash=0x" << std::hex << snapshot->hash() << std::dec << "\n";
     for (const auto& [k, v] : snapshot->data()) {
-      std::string s(v.size(), '\0');
-      for (size_t i = 0; i < v.size(); ++i)
-        s[i] = static_cast<char>(static_cast<unsigned char>(v[i]));
+      const auto& val = v.value;
+      std::string s(val.size(), '\0');
+      for (size_t i = 0; i < val.size(); ++i)
+        s[i] = static_cast<char>(static_cast<unsigned char>(val[i]));
       std::cout << "  key=" << k << " value=\"" << s << "\"\n";
     }
   }

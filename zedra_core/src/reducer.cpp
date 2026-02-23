@@ -6,9 +6,11 @@
 namespace zedra {
 
 Reducer::Reducer(std::size_t queue_capacity,
-                 LockFreeQueue<EgressItem>* egress_queue)
+                 LockFreeQueue<EgressItem>* egress_queue,
+                 std::uint64_t window_ticks)
     : queue_(queue_capacity),
       egress_queue_(egress_queue),
+      window_ticks_(window_ticks),
       snapshot_(std::make_shared<WorldState>()) {}
 
 Reducer::~Reducer() {
@@ -69,6 +71,12 @@ void Reducer::run() {
     for (const Event& e : pending) {
       state = WorldState::apply(state, e);
     }
+
+    std::uint64_t batch_max = 0;
+    for (const Event& e : pending) batch_max = std::max(batch_max, e.tick);
+    max_tick_seen_ = std::max(max_tick_seen_, batch_max);
+    if (window_ticks_ > 0)
+      state = WorldState::trim(state, max_tick_seen_, window_ticks_);
 
     pending.clear();
 

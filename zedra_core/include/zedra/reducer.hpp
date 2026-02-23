@@ -6,6 +6,7 @@
 #include <zedra/lock_free_queue.hpp>
 #include <zedra/state.hpp>
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -20,8 +21,10 @@ class Reducer {
  public:
   /// \param queue_capacity Capacity of the ingestion queue.
   /// \param egress_queue If non-null, each event (after sort) is pushed here with ingestion_ts before apply. Single consumer only.
+  /// \param window_ticks If > 0, trim state to keys updated within the last window_ticks (by global max tick). 0 = no trim.
   explicit Reducer(std::size_t queue_capacity = 65536,
-                   LockFreeQueue<EgressItem>* egress_queue = nullptr);
+                   LockFreeQueue<EgressItem>* egress_queue = nullptr,
+                   std::uint64_t window_ticks = 0);
   ~Reducer();
 
   Reducer(const Reducer&) = delete;
@@ -41,6 +44,8 @@ class Reducer {
 
   LockFreeQueue<Event> queue_;
   LockFreeQueue<EgressItem>* egress_queue_;
+  std::uint64_t window_ticks_{0};
+  std::uint64_t max_tick_seen_{0};
   mutable std::mutex snapshot_mutex_;
   std::shared_ptr<const WorldState> snapshot_;
   std::atomic<bool> running_{false};

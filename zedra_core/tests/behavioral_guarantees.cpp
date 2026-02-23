@@ -89,8 +89,8 @@ void ReplayParity_IdenticalEvolutionPath() {
   assert(s2->data().size() == 2);
   assert(s1->data()[0].first == s2->data()[0].first);
   assert(s1->data()[1].first == s2->data()[1].first);
-  assert(s1->data()[0].second.size() == s2->data()[0].second.size());
-  assert(s1->data()[1].second.size() == s2->data()[1].second.size());
+  assert(s1->data()[0].second.value.size() == s2->data()[0].second.value.size());
+  assert(s1->data()[1].second.value.size() == s2->data()[1].second.value.size());
 }
 
 void ImmutableSnapshots_ReadersGetConstOnly() {
