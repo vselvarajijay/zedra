@@ -2,13 +2,9 @@
 
 **Deterministic state semantics as infrastructure.**
 
-## The problem
+Real-time robotics systems mutate shared state under concurrency without deterministic ordering. Behavior ends up depending on OS scheduling and wall-clock timing, causing race conditions, sim-to-real divergence, and unreproducible execution. Zedra enforces one rule to fix this: **concurrency at ingestion only; one thread mutates state.**
 
-Real-time robotics systems mutate shared state under concurrency without deterministic ordering. Behavior therefore depends on wall-clock timing and OS scheduling, which leads to non-deterministic execution, order-dependent race conditions, simulation-to-real divergence, and the inability to achieve exact state replay.
-
-## What Zedra solves
-
-Zedra is a C++20 deterministic, replayable, versioned world-state runtime. It enforces a single structural rule: **concurrency at ingestion only; a single authority for mutation.** Events are ordered by logical time (never OS timing), a single reducer thread is the sole mutator of world state, and readers get lock-free immutable snapshots. An identical event log yields an identical state evolution—enabling exact replay and reliable validation.
+Multiple producers (sensors, controllers, sim) push events into a lock-free queue. A single reducer thread drains the queue, sorts by logical time (tick, tie_breaker), and applies events to world state in order. Readers get immutable snapshots. Same event log, same state, always.
 
 ---
 
@@ -98,30 +94,58 @@ Only this thread mutates `state` and publishes `snapshot`; all other threads eit
 
 ---
 
-## Building with ROS 2
+## ROS 2 integration
 
-The `zedra_ros` package provides a thin transport bridge: it subscribes to `ZedraEvent` messages, pushes them into the core reducer, and publishes `SnapshotMeta` (version + hash) at 1 kHz.
-
-**Workspace layout:** Clone the repo into your colcon source space so that both `zedra_core` and `zedra_ros` are discovered:
+**Build:**
 
 ```bash
-cd /path/to/your/workspace/src
-git clone <repo_url> zedra
-cd /path/to/your/workspace
-colcon build --packages-up-to zedra_ros
+cd your_ws/src && git clone <repo_url> zedra
+cd your_ws && colcon build --packages-up-to zedra_ros
 source install/setup.bash
 ```
 
-**Run the bridge node:**
+**Run the bridge:**
 
 ```bash
 ros2 run zedra_ros zedra_ros_node
+# optional: --ros-args -p queue_capacity:=65536
 ```
 
-- **Ingest:** Publish `zedra_ros/msg/ZedraEvent` to `/zedra/inbound_events` (tick, tie_breaker, type, payload).
-- **Egress:** The node publishes `zedra_ros/msg/SnapshotMeta` (version, hash) on `/zedra/snapshot_meta` at 1 kHz.
+**Ingest:** Publish `ZedraEvent` to `/zedra/inbound_events`. **Egress:** `SnapshotMeta` (version + hash) on `/zedra/snapshot_meta` at 1 kHz.
 
-**Tests:** From the workspace root, run the replay determinism test (publishes 10k events, records a bag, replays twice, asserts identical final hash):
+**Publish events — C++:**
+
+```cpp
+#include <zedra_ros/msg/zedra_event.hpp>
+auto pub = create_publisher<zedra_ros::msg::ZedraEvent>("/zedra/inbound_events", 10);
+
+zedra_ros::msg::ZedraEvent msg;
+msg.tick = tick;  msg.tie_breaker = tie_breaker;  msg.type = 0;  // upsert
+// payload = 8-byte little-endian key + value bytes
+std::vector<uint8_t> payload(8 + value.size());
+memcpy(payload.data(), &key, 8);
+memcpy(payload.data() + 8, value.data(), value.size());
+msg.payload = payload;
+pub->publish(msg);
+```
+
+**Publish events — Python:**
+
+```python
+from zedra_ros.msg import ZedraEvent
+pub = node.create_publisher(ZedraEvent, "/zedra/inbound_events", 10)
+
+msg = ZedraEvent()
+msg.tick = tick;  msg.tie_breaker = tie_breaker;  msg.type = 0
+msg.payload = list(key.to_bytes(8, "little")) + list(value_bytes)
+pub.publish(msg)
+```
+
+**Read snapshots:** Subscribe to `/zedra/snapshot_meta` for `SnapshotMeta` (version, hash). Same event log → same hash, enabling replay validation.
+
+Add `zedra_ros` to your `package.xml` for message types.
+
+**Test:**
 
 ```bash
 colcon test --packages-select zedra_ros
