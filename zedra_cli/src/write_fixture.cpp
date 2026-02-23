@@ -1,14 +1,21 @@
-// Writes a small binary-format event log (same 3 events as demo) to stdout.
-// Usage: write_fixture [> fixtures/sample.bin]
+// Writes a binary-format event log: 100 events from 5 sensors, in shuffled order.
+// Usage: write_fixture [> sensors.bin]; then: zedra replay sensors.bin
 // Format: per event: tick (uint64), tie_breaker (uint64), type (uint32),
 //         payload_len (uint32), payload (bytes). Little-endian.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <random>
+#include <string>
 #include <vector>
 
 namespace {
+
+constexpr int kNumSensors = 5;
+constexpr int kTotalEvents = 100;
+constexpr unsigned kShuffleSeed = 42u;
 
 void write_le(std::ostream& out, const void* p, std::size_t n) {
   out.write(static_cast<const char*>(p), n);
@@ -28,22 +35,38 @@ void write_event(std::ostream& out, std::uint64_t tick, std::uint64_t tie_breake
   if (len > 0) write_le(out, payload, len);
 }
 
+struct EventRecord {
+  std::uint64_t tick;
+  std::uint64_t tie_breaker;
+  std::uint64_t key;
+  std::string value;
+};
+
 }  // namespace
 
 int main() {
   std::ostream& out = std::cout;
-  auto upsert = [&](std::uint64_t tick, std::uint64_t tie_breaker,
-                    std::uint64_t key, const char* value) {
-    std::size_t vlen = std::strlen(value);
-    std::vector<char> payload(sizeof(key) + vlen);
-    std::memcpy(payload.data(), &key, sizeof(key));
-    std::memcpy(payload.data() + sizeof(key), value, vlen);
-    write_event(out, tick, tie_breaker, 0, payload.data(),
-               static_cast<std::uint32_t>(payload.size()));
-  };
 
-  upsert(0, 0, 1, "hello");
-  upsert(1, 0, 2, "world");
-  upsert(2, 0, 1, "zedra");
+  std::vector<EventRecord> events;
+  events.reserve(static_cast<std::size_t>(kTotalEvents));
+  for (int i = 0; i < kTotalEvents; ++i) {
+    std::uint64_t tick = static_cast<std::uint64_t>(i);
+    std::uint64_t tie_breaker = tick % kNumSensors;
+    std::uint64_t key = tick;
+    std::string value = "sensor_" + std::to_string(static_cast<int>(tie_breaker)) +
+                       "_" + std::to_string(static_cast<unsigned long>(tick));
+    events.push_back({tick, tie_breaker, key, std::move(value)});
+  }
+
+  std::shuffle(events.begin(), events.end(), std::mt19937(kShuffleSeed));
+
+  for (const auto& rec : events) {
+    std::size_t vlen = rec.value.size();
+    std::vector<char> payload(sizeof(rec.key) + vlen);
+    std::memcpy(payload.data(), &rec.key, sizeof(rec.key));
+    std::memcpy(payload.data() + sizeof(rec.key), rec.value.data(), vlen);
+    write_event(out, rec.tick, rec.tie_breaker, 0, payload.data(),
+                static_cast<std::uint32_t>(payload.size()));
+  }
   return 0;
 }

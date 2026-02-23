@@ -3,14 +3,28 @@
 #include <zedra/event.hpp>
 #include <zedra/reducer.hpp>
 #include <zedra/state.hpp>
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <random>
 #include <string>
 #include <thread>
 
 namespace {
+
+constexpr int kNumSensors = 5;
+constexpr int kEventsPerSensor = 20;
+constexpr int kTotalEvents = kNumSensors * kEventsPerSensor;
+constexpr int kDelayNormalMinMs = 0;
+constexpr int kDelayNormalMaxMs = 80;
+constexpr int kDelayLaggedMinMs = 1000;
+constexpr int kDelayLaggedMaxMs = 3000;
+constexpr int kLaggedPercent = 10;
+constexpr unsigned kRngSeed = 12345u;
+constexpr int kMaxWaitMs = 15000;
+constexpr int kPollIntervalMs = 2;
 
 zedra::Event make_upsert(std::uint64_t tick, std::uint64_t tie_breaker,
                         std::uint64_t key, const char* value) {
@@ -26,32 +40,57 @@ int run_demo(const zedra_cli::GlobalOptions& global_opts) {
                          nullptr, global_opts.window_ticks);
   reducer.start();
 
-  std::vector<zedra::Event> events = {
-      make_upsert(0, 0, 1, "hello"),
-      make_upsert(1, 0, 2, "world"),
-      make_upsert(2, 0, 1, "zedra"),
-  };
-
-  for (const auto& e : events) {
-    if (!reducer.submit(e)) {
-      std::cerr << "zedra demo: queue full\n";
-      reducer.stop();
-      return 1;
-    }
+  // Build the same 100 events as the fixture (tick 0..99, tie_breaker = tick % 5).
+  std::vector<zedra::Event> events;
+  events.reserve(static_cast<std::size_t>(kTotalEvents));
+  for (int i = 0; i < kTotalEvents; ++i) {
+    std::uint64_t tick = static_cast<std::uint64_t>(i);
+    std::uint64_t tie_breaker = tick % kNumSensors;
+    std::uint64_t key = tick;
+    std::string value_str =
+        "sensor_" + std::to_string(static_cast<int>(tie_breaker)) + "_" +
+        std::to_string(static_cast<unsigned long>(tick));
+    events.push_back(
+        make_upsert(tick, tie_breaker, key, value_str.c_str()));
   }
+  std::shuffle(events.begin(), events.end(), std::mt19937(kRngSeed));
 
-  const std::uint64_t expected_version = static_cast<std::uint64_t>(events.size());
-  const int max_wait_ms = 1000;
-  const int poll_interval_ms = 2;
+  // Submit from 5 threads: each thread takes events by index with random delays
+  // (fixed seed per thread) so arrival order is chaotic but deterministic.
+  std::vector<std::thread> sensors;
+  for (int sensor_id = 0; sensor_id < kNumSensors; ++sensor_id) {
+    sensors.emplace_back([&reducer, &events, sensor_id]() {
+      std::mt19937 rng(kRngSeed + static_cast<unsigned>(sensor_id + 1));
+      std::uniform_int_distribution<int> normal_delay(kDelayNormalMinMs,
+                                                      kDelayNormalMaxMs);
+      std::uniform_int_distribution<int> lagged_delay(kDelayLaggedMinMs,
+                                                     kDelayLaggedMaxMs);
+      std::uniform_int_distribution<int> lag_roll(0, 99);
+      for (int i = sensor_id; i < kTotalEvents; i += kNumSensors) {
+        int delay_ms = (lag_roll(rng) < kLaggedPercent)
+                           ? lagged_delay(rng)
+                           : normal_delay(rng);
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+        zedra::Event e = events[static_cast<std::size_t>(i)];
+        while (!reducer.submit(std::move(e))) {
+          std::this_thread::yield();
+        }
+      }
+    });
+  }
+  for (auto& t : sensors) t.join();
+
+  const std::uint64_t expected_version = static_cast<std::uint64_t>(kTotalEvents);
   int waited = 0;
-  while (waited < max_wait_ms) {
+  while (waited < kMaxWaitMs) {
     auto snap = reducer.get_snapshot();
     if (snap && snap->version() >= expected_version) break;
-    std::this_thread::sleep_for(std::chrono::milliseconds(poll_interval_ms));
-    waited += poll_interval_ms;
+    std::this_thread::sleep_for(std::chrono::milliseconds(kPollIntervalMs));
+    waited += kPollIntervalMs;
   }
 
   auto snapshot = reducer.get_snapshot();
+  auto stats = reducer.get_stats();
   reducer.stop();
 
   if (!snapshot || snapshot->version() < expected_version) {
@@ -61,6 +100,10 @@ int run_demo(const zedra_cli::GlobalOptions& global_opts) {
 
   std::cout << "version=" << snapshot->version()
             << " hash=0x" << std::hex << snapshot->hash() << std::dec << "\n";
+  std::cout << "events_applied=" << stats.events_applied
+            << " first_tick=" << stats.first_tick
+            << " last_tick=" << stats.last_tick
+            << " window_ticks=" << stats.window_ticks << "\n";
   std::cout << "keys=" << snapshot->data().size() << "\n";
   for (const auto& [k, v] : snapshot->data()) {
     std::string s(v.value.size(), '\0');
