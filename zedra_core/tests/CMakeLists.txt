@@ -8,6 +8,7 @@ add_executable(zedra_core_tests
   behavioral_guarantees.cpp
   example_smoke_test.cpp
   concurrent_test.cpp
+  chaotic_ingestion_test.cpp
 )
 target_link_libraries(zedra_core_tests PRIVATE zedra_core)
 

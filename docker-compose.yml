@@ -1,8 +1,11 @@
 services:
+  # ClickHouse and init: use profile "clickhouse" so "docker compose up zedra" runs bridge only.
   clickhouse:
     image: clickhouse/clickhouse-server:24.3
     container_name: zedra-clickhouse
     hostname: clickhouse
+    profiles:
+      - clickhouse
     ports:
       - "8123:8123"   # HTTP
       - "9000:9000"   # Native
@@ -25,18 +28,32 @@ services:
       - zedra-net
     restart: unless-stopped
 
+  clickhouse-init:
+    image: clickhouse/clickhouse-server:24.3
+    profiles:
+      - clickhouse
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - ./scripts/migrations/001_init.sql:/init/001_init.sql
+    entrypoint: ["/bin/sh", "-c", "clickhouse-client --host clickhouse --multiquery < /init/001_init.sql"]
+    networks:
+      - zedra-net
+    restart: "no"
+
   zedra:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: zedra-ros
-    depends_on:
-      clickhouse:
-        condition: service_healthy
+    # No depends_on: run "docker compose up zedra" for ROS-only (no ClickHouse).
+    # Run "docker compose --profile clickhouse up" for full stack; set ZEDRA_PERSIST_EVENTS=1 to persist.
     environment:
-      # For Zedra → ClickHouse integration (e.g. event/snapshot logging)
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: 8123
+      # Persistence off by default; set to 1 to send events to ClickHouse (requires ClickHouse when enabled).
+      ZEDRA_PERSIST_EVENTS: "0"
     networks:
       - zedra-net
     restart: unless-stopped

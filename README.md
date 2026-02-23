@@ -1,6 +1,6 @@
 # Zedra
 
-**Deterministic state semantics as infrastructure.**
+**Deterministic world state for robotics.**
 
 Real-time robotics systems mutate shared state under concurrency without deterministic ordering. Behavior ends up depending on OS scheduling and wall-clock timing, causing race conditions, sim-to-real divergence, and unreproducible execution. Zedra enforces one rule to fix this: **concurrency at ingestion only; one thread mutates state.**
 
@@ -91,6 +91,18 @@ Only this thread mutates `state` and publishes `snapshot`; all other threads eit
 
 - **Replay**: Feed the same event log (same order, same payloads) into the reducer → same sequence of `WorldState` snapshots and same final state hash.
 - **Validation**: Persist events and state hashes; recompute state from events and compare hashes to detect divergence or corruption.
+
+---
+
+## Core tests (standalone)
+
+From the repo root, build and run the core test suite (unit tests, replay, behavioral guarantees, concurrent tests, chaotic ingestion):
+
+```bash
+./scripts/run_tests.sh
+```
+
+This configures and builds in `build_standalone`, then runs `ctest` (or the test binary directly if ctest is not available).
 
 ---
 

@@ -18,7 +18,7 @@ zedra::Event event_with_tick(std::uint64_t tick) {
 }
 
 void PushThenPop_OrderPreserved() {
-  zedra::LockFreeQueue q(16);
+  zedra::LockFreeQueue<zedra::Event> q(16);
   for (std::size_t i = 0; i < 10; ++i)
     assert(q.push(event_with_tick(i)));
   for (std::size_t i = 0; i < 10; ++i) {
@@ -31,7 +31,7 @@ void PushThenPop_OrderPreserved() {
 }
 
 void InterleavedPushPop() {
-  zedra::LockFreeQueue q(16);
+  zedra::LockFreeQueue<zedra::Event> q(16);
   for (std::size_t i = 0; i < 10; ++i) {
     assert(q.push(event_with_tick(i)));
     zedra::Event e;
@@ -43,16 +43,16 @@ void InterleavedPushPop() {
 }
 
 void Capacity_RoundsToPowerOfTwo() {
-  zedra::LockFreeQueue q3(3);
+  zedra::LockFreeQueue<zedra::Event> q3(3);
   assert(q3.capacity() == 4);
-  zedra::LockFreeQueue q1(1);
+  zedra::LockFreeQueue<zedra::Event> q1(1);
   assert(q1.capacity() == 1);
-  zedra::LockFreeQueue q17(17);
+  zedra::LockFreeQueue<zedra::Event> q17(17);
   assert(q17.capacity() == 32);
 }
 
 void Capacity_PushUpToCapacitySucceeds() {
-  zedra::LockFreeQueue q(4);
+  zedra::LockFreeQueue<zedra::Event> q(4);
   assert(q.push(event_with_tick(0)));
   assert(q.push(event_with_tick(1)));
   assert(q.push(event_with_tick(2)));
@@ -61,7 +61,7 @@ void Capacity_PushUpToCapacitySucceeds() {
 }
 
 void FullThenPopOneThenPushOne() {
-  zedra::LockFreeQueue q(4);
+  zedra::LockFreeQueue<zedra::Event> q(4);
   for (std::size_t i = 0; i < 4; ++i)
     assert(q.push(event_with_tick(i)));
   assert(!q.push(event_with_tick(99)));
@@ -78,13 +78,13 @@ void FullThenPopOneThenPushOne() {
 }
 
 void Empty_TryPopReturnsFalse() {
-  zedra::LockFreeQueue q(8);
+  zedra::LockFreeQueue<zedra::Event> q(8);
   zedra::Event e;
   assert(!q.try_pop(e));
 }
 
 void Empty_DrainReturnsZero() {
-  zedra::LockFreeQueue q(8);
+  zedra::LockFreeQueue<zedra::Event> q(8);
   std::vector<zedra::Event> out;
   assert(q.drain(out, 0) == 0);
   assert(out.empty());
@@ -92,7 +92,7 @@ void Empty_DrainReturnsZero() {
 }
 
 void Drain_AllWhenMaxZero() {
-  zedra::LockFreeQueue q(16);
+  zedra::LockFreeQueue<zedra::Event> q(16);
   for (std::size_t i = 0; i < 5; ++i)
     assert(q.push(event_with_tick(i)));
   std::vector<zedra::Event> out;
@@ -104,7 +104,7 @@ void Drain_AllWhenMaxZero() {
 }
 
 void Drain_MaxEventsCapsCount() {
-  zedra::LockFreeQueue q(16);
+  zedra::LockFreeQueue<zedra::Event> q(16);
   for (std::size_t i = 0; i < 5; ++i)
     assert(q.push(event_with_tick(i)));
   std::vector<zedra::Event> out;

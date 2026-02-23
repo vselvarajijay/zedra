@@ -117,12 +117,13 @@ void ImmutableSnapshots_ReadersGetConstOnly() {
 
 void QueueFull_SubmitReturnsFalseThenSucceedsAfterDrain() {
   zedra::Reducer r(4);
-  r.start();
+  // Fill queue before starting reducer so we don't race with the drain loop.
   std::size_t submitted = 0;
-  while (r.submit(make_upsert(static_cast<std::uint64_t>(submitted), 0, 1, "x", 1)))
-    ++submitted;
+  for (; submitted < 4; ++submitted)
+    assert(r.submit(make_upsert(static_cast<std::uint64_t>(submitted), 0, 1, "x", 1)));
   assert(submitted == 4);
   assert(!r.submit(make_upsert(99, 0, 1, "y", 1)));
+  r.start();
   auto wait_version = [](zedra::Reducer& red, std::uint64_t version) {
     for (int i = 0; i < 500; ++i) {
       auto s = red.get_snapshot();

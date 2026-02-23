@@ -9,7 +9,6 @@ endif()
 find_package(ament_cmake QUIET)
 
 add_library(zedra_core
-  src/lock_free_queue.cpp
   src/state.cpp
   src/reducer.cpp
 )

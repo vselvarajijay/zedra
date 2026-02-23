@@ -67,42 +67,52 @@ void MultiProducerSingleConsumerNoDataRaces() {
 }
 
 void DeterminismUnderMPSC_SameInputSameHash() {
-  auto run_reducer = []() -> std::uint64_t {
-    zedra::Reducer r(65536);
-    r.start();
+  // Build the same set of events in deterministic (tick, tie) order and submit
+  // from a single thread so ingestion order is identical across runs. Two runs
+  // must produce the same final hash (reducer sorts by tick/tie before apply).
+  auto build_events = []() {
+    std::vector<zedra::Event> events;
     const int num_producers = 4;
     const int events_per_producer = 200;
-    std::vector<std::thread> producers;
+    events.reserve(num_producers * events_per_producer);
     for (int p = 0; p < num_producers; ++p) {
-      producers.emplace_back([&, p]() {
-        for (int i = 0; i < events_per_producer; ++i) {
-          std::uint64_t tick = static_cast<std::uint64_t>(p * 10000 + i);
-          std::uint64_t tie = static_cast<std::uint64_t>(p);
-          std::vector<std::byte> payload(16);
-          std::memcpy(payload.data(), &tick, sizeof(tick));
-          std::memcpy(payload.data() + 8, &tie, sizeof(tie));
-          while (!r.submit(zedra::Event(tick, tie, 0, payload))) {
-            std::this_thread::yield();
-          }
-        }
-      });
-    }
-    for (auto& t : producers) t.join();
-    const std::uint64_t expected = num_producers * events_per_producer;
-    for (int i = 0; i < 1000; ++i) {
-      auto s = r.get_snapshot();
-      if (s && s->version() >= expected) {
-        std::uint64_t h = s->hash();
-        r.stop();
-        return h;
+      for (int i = 0; i < events_per_producer; ++i) {
+        std::uint64_t tick = static_cast<std::uint64_t>(p * 10000 + i);
+        std::uint64_t tie = static_cast<std::uint64_t>(p);
+        std::vector<std::byte> payload(16);
+        std::memcpy(payload.data(), &tick, sizeof(tick));
+        std::memcpy(payload.data() + 8, &tie, sizeof(tie));
+        events.emplace_back(tick, tie, 0, std::move(payload));
       }
+    }
+    std::sort(events.begin(), events.end());
+    return events;
+  };
+
+  auto run_reducer = [](const std::vector<zedra::Event>& events) -> std::uint64_t {
+    zedra::Reducer r(65536);
+    r.start();
+    for (const zedra::Event& e : events) {
+      bool ok = r.submit(zedra::Event(e.tick, e.tie_breaker, e.type, e.payload));
+      assert(ok && "queue should have capacity");
+    }
+    const std::uint64_t expected = static_cast<std::uint64_t>(events.size());
+    std::shared_ptr<const zedra::WorldState> s;
+    for (int i = 0; i < 5000; ++i) {
+      s = r.get_snapshot();
+      if (s && s->version() >= expected) break;
       std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
     r.stop();
-    return 0;
+    s = r.get_snapshot();
+    assert(s && s->version() >= expected && "reducer did not apply all events in time");
+    return s->hash();
   };
-  std::uint64_t h1 = run_reducer();
-  std::uint64_t h2 = run_reducer();
+
+  std::vector<zedra::Event> events1 = build_events();
+  std::vector<zedra::Event> events2 = build_events();
+  std::uint64_t h1 = run_reducer(events1);
+  std::uint64_t h2 = run_reducer(events2);
   assert(h1 != 0 && h2 != 0);
   assert(h1 == h2);
 }

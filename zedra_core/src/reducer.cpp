@@ -5,10 +5,11 @@
 
 namespace zedra {
 
-Reducer::Reducer(std::size_t queue_capacity)
+Reducer::Reducer(std::size_t queue_capacity,
+                 LockFreeQueue<EgressItem>* egress_queue)
     : queue_(queue_capacity),
-      snapshot_(std::make_shared<WorldState>()) {
-}
+      egress_queue_(egress_queue),
+      snapshot_(std::make_shared<WorldState>()) {}
 
 Reducer::~Reducer() {
   stop();
@@ -37,21 +38,39 @@ void Reducer::run() {
   WorldState state;
   std::vector<Event> batch;
   batch.reserve(1024);
+  std::vector<Event> pending;
 
   while (running_.load(std::memory_order_acquire)) {
     batch.clear();
     queue_.drain(batch, 1024);
 
-    if (batch.empty()) {
+    if (!batch.empty()) {
+      pending.insert(pending.end(), batch.begin(), batch.end());
+      continue;
+    }
+
+    // Empty drain: queue was empty at this moment. Apply all pending in logical order.
+    if (pending.empty()) {
       std::this_thread::yield();
       continue;
     }
 
-    std::sort(batch.begin(), batch.end());
+    std::sort(pending.begin(), pending.end());
 
-    for (const Event& e : batch) {
+    const auto ingestion_ts = std::chrono::system_clock::now();
+    if (egress_queue_) {
+      for (const Event& e : pending) {
+        if (!egress_queue_->push(EgressItem(ingestion_ts, Event(e)))) {
+          // Egress full; drop and continue (do not block reducer).
+        }
+      }
+    }
+
+    for (const Event& e : pending) {
       state = WorldState::apply(state, e);
     }
+
+    pending.clear();
 
     {
       std::lock_guard<std::mutex> lock(snapshot_mutex_);
