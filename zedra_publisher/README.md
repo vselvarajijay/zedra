@@ -8,8 +8,18 @@ Python publisher SDK for the [Zedra](https://github.com/vselvarajijay/zedra) det
 
 ## Installation
 
+From [GitHub Packages](https://github.com/vselvarajijay/zedra/packages):
+
 ```bash
-pip install zedra-publisher
+pip install zedra-publisher \
+  --index-url https://pypi.pkg.github.com/vselvarajijay/simple/
+```
+
+You will need a GitHub personal access token with `read:packages` scope set as the password:
+
+```bash
+pip install zedra-publisher \
+  --index-url https://<your-github-username>:<YOUR_TOKEN>@pypi.pkg.github.com/vselvarajijay/simple/
 ```
 
 ## Quick Start

@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   build:
@@ -50,21 +51,16 @@ jobs:
           path: zedra_publisher/dist/
 
   publish:
-    name: Publish to PyPI
+    name: Publish to GitHub Packages
     runs-on: ubuntu-latest
     needs: build
-    # Publish on release events only.
-    # Option 1 (recommended): configure an OIDC Trusted Publisher at pypi.org –
-    #   no secret needed; the id-token permission below is sufficient.
-    # Option 2: store your PyPI API token as the PYPI_API_TOKEN repository secret
-    #   and uncomment the `password:` line in the step below.
-    if: github.event_name == 'release'
-    environment:
-      name: pypi
-      url: https://pypi.org/project/zedra-publisher/
+    if: >
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'release'
 
     permissions:
-      id-token: write  # required for OIDC Trusted Publisher
+      packages: write
+      id-token: write
 
     steps:
       - name: Download distribution artifacts
@@ -73,7 +69,8 @@ jobs:
           name: zedra-publisher-dist
           path: dist/
 
-      - name: Publish to PyPI
+      - name: Publish to GitHub Packages
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          # password: ${{ secrets.PYPI_API_TOKEN }}  # uncomment if not using OIDC
+          password: ${{ secrets.GITHUB_TOKEN }}
+          repository-url: https://pypi.pkg.github.com/${{ github.repository_owner }}/
