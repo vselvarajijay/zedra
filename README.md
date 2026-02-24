@@ -8,6 +8,8 @@ Zedra enforces one rule to fix this: **concurrency at ingestion only; one thread
 
 For design, components, and guarantees, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
+**Documentation (GitHub Pages):** [https://vselvarajijay.github.io/zedra/](https://vselvarajijay.github.io/zedra/)
+
 ---
 
 ## Running Tests
