@@ -21,3 +21,10 @@ Makefile
 
 
 Testing/
+
+# Python build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.eggs/
