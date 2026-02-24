@@ -12,13 +12,6 @@ Python publisher SDK for the [Zedra](https://github.com/vselvarajijay/zedra) det
 pip install zedra-publisher
 ```
 
-Or from [GitHub Packages](https://github.com/vselvarajijay/zedra/packages):
-
-```bash
-pip install zedra-publisher \
-  --index-url https://__token__:YOUR_GITHUB_TOKEN@pypi.pkg.github.com/vselvarajijay/
-```
-
 ## Quick Start
 
 ```python
