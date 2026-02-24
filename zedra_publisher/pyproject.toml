@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zedra-publisher"
+version = "0.1.0"
+description = "Python publisher SDK for the Zedra deterministic world-state runtime"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+keywords = ["zedra", "publisher", "events", "deterministic"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["zedra_publisher*"]
